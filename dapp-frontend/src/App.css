@@ -40,3 +40,108 @@
 .read-the-docs {
   color: #888;
 }
+
+/* Verbesserte Statusanzeige */
+.status {
+  margin-top: 1rem;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-weight: 500;
+  min-width: 300px;
+  transition: background-color 0.3s, color 0.3s;
+}
+.status.info { background-color: #2a2a6e; color: #d8d8ff; }
+.status.success { background-color: #2a6e2a; color: #d8ffd8; }
+.status.error { background-color: #6e2a2a; color: #ffd8d8; }
+.status.loading { background-color: #4a4a4a; color: #f0f0f0; }
+
+/* Layout für Formulargruppen */
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  align-items: center;
+}
+
+.form-group input {
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  border-radius: 8px;
+  border: 1px solid #555;
+  background-color: #2a2a2a;
+  width: 80%;
+  max-width: 400px;
+}
+
+/* Spezifische Gruppe für das Salt-Eingabefeld */
+.salt-input-group {
+  display: flex;
+  gap: 0.5rem;
+  width: 85%;
+  max-width: 550px;
+  align-items: center;
+  justify-content: center;
+}
+.salt-input-group input {
+  flex-grow: 1;
+}
+
+/* Visuelle Hervorhebung der Salt-Warnung */
+.card-warning {
+  background-color: rgba(255, 224, 130, 0.1);
+  border: 1px solid #ffe082;
+  border-radius: 8px;
+  padding: 1.5em;
+  margin-top: 1em;
+}
+
+.salt-display {
+  background-color: #1a1a1a;
+  padding: 0.5em;
+  border-radius: 4px;
+  margin: 1em 0;
+  word-break: break-all; /* Damit lange Salts umbrechen */
+}
+
+/* Animation für den Spinner */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.spinner {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+  margin-right: 0.5em;
+}
+
+
+
+.status-info { color: #888; }
+.status-success { color: #4caf50; font-weight: bold; }
+.status-error { color: #f44336; font-weight: bold; }
+.status-loading { color: #2196f3; }
+
+.results-table {
+  margin-top: 2rem;
+}
+
+.results-table table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+}
+
+.results-table th, .results-table td {
+  border: 1px solid #444;
+  padding: 8px;
+  text-align: left;
+}
+
+.results-table th {
+  background-color: #333;
+}
+
+.winner-row {
+  background-color: #2a3a2a;
+  font-weight: bold;
+}
