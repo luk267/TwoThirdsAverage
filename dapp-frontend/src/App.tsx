@@ -3,28 +3,25 @@ import { ethers, Contract, formatEther, solidityPackedKeccak256, encodeBytes32St
 import type { BrowserProvider } from 'ethers';
 import './App.css';
 
-// Importieren unserer Adressen und ABIs aus der Konstanten-Datei
 import {
   TWO_THIRDS_AVERAGE_GAME_ADDRESS,
   twoThirdsAverageGameABI
 } from './constants';
 
-// --- Typ-Definitionen für bessere Code-Qualität mit TypeScript ---
+// --- Typ-Definitionen ---
 
-// Definiert die Struktur der allgemeinen Spieldaten
 interface GameData {
   phase: number;
   wagerAmount: bigint;
   pot: bigint;
   playerCount: number;
-  deadline: number;
+  deadlineBlock: number;
   owner: string;
   winner: string;
   serviceFeeWithdrawn: boolean;
-  targetValue: number; // Hinzugefügt für die Ergebnistabelle
+  targetValue: number;
 }
 
-// Definiert die Struktur der Daten des aktuell verbundenen Spielers
 interface PlayerInfo {
   hasJoined: boolean;
   hasCommitted: boolean;
@@ -32,7 +29,6 @@ interface PlayerInfo {
   hasWithdrawn: boolean;
 }
 
-// Definiert die Struktur für eine Zeile in der Ergebnistabelle
 interface FinalResult {
     playerAddress: string;
     revealedNumber: number;
@@ -40,20 +36,56 @@ interface FinalResult {
     hasRevealed: boolean;
 }
 
-// Definiert die Status-Typen für UI-Feedback
 type StatusType = 'info' | 'error' | 'success' | 'loading';
 
-// Hilfs-Array, um die Spielphase (Zahl) in einen lesbaren Text umzuwandeln
 const spielPhasen = [
   "Registrierung", "Commit", "Reveal", 
-  "Berechnung", "Auszahlung", "Abgeschlossen"
+  "Berechnung", "Auszahlung", "Abgeschlossen", "Abgebrochen"
 ];
 
-// --- Hilfsfunktionen & Unterkomponenten ---
 
-/**
- * Ruft alle Daten ab, die für die Endergebnistabelle benötigt werden.
- */
+// --- Hilfskomponenten ---
+
+interface ResultsTableProps {
+  results: FinalResult[];
+  targetValue: number;
+  winnerAddress: string;
+}
+
+const ResultsTable = ({ results, targetValue, winnerAddress }: ResultsTableProps) => {
+    if (results.length === 0) {
+        return <div className="card results-table"><p>Noch keine Ergebnisse verfügbar oder niemand hat aufgedeckt.</p></div>;
+    }
+    return (
+      <div className="card results-table">
+        <h3>Endergebnis</h3>
+        <p>Der Zielwert (2/3 des Durchschnitts) war: <strong>{targetValue.toFixed(2)}</strong></p>
+        <table>
+          <thead>
+            <tr>
+              <th>Rang</th>
+              <th>Spieler</th>
+              <th>Geratene Zahl</th>
+              <th>Differenz</th>
+            </tr>
+          </thead>
+          <tbody>
+            {results.map((result, index) => (
+              <tr key={result.playerAddress} className={result.playerAddress.toLowerCase() === winnerAddress.toLowerCase() ? 'winner-row' : ''}>
+                <td>{index + 1}</td>
+                <td>{`${result.playerAddress.substring(0, 6)}...${result.playerAddress.substring(result.playerAddress.length - 4)}`}</td>
+                <td>{result.hasRevealed ? result.revealedNumber : 'N/A'}</td>
+                <td>{result.hasRevealed ? result.difference.toFixed(2) : 'N/A'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+};
+
+// --- Hilfsfunktionen für die Datenabfrage ---
+
 async function fetchFinalResultsData(contract: Contract) {
     try {
         const playerCount = await contract.getSpielerAnzahl();
@@ -84,50 +116,11 @@ async function fetchFinalResultsData(contract: Contract) {
     }
 }
 
-// Definiert die Props für die ResultsTable Komponente
-interface ResultsTableProps {
-  results: FinalResult[];
-  targetValue: number;
-  winnerAddress: string;
-}
-
-/**
- * Eine separate Komponente zur Darstellung der Ergebnistabelle.
- */
-const ResultsTable = ({ results, targetValue, winnerAddress }: ResultsTableProps) => {
-    return (
-      <div className="card results-table">
-        <h3>Endergebnis</h3>
-        <p>Der Zielwert (2/3 des Durchschnitts) war: <strong>{targetValue}</strong></p>
-        <table>
-          <thead>
-            <tr>
-              <th>Rang</th>
-              <th>Spieler</th>
-              <th>Geratene Zahl</th>
-              <th>Differenz</th>
-            </tr>
-          </thead>
-          <tbody>
-            {results.map((result, index) => (
-              <tr key={result.playerAddress} className={result.playerAddress.toLowerCase() === winnerAddress.toLowerCase() ? 'winner-row' : ''}>
-                <td>{index + 1}</td>
-                <td>{`${result.playerAddress.substring(0, 6)}...${result.playerAddress.substring(result.playerAddress.length - 4)}`}</td>
-                <td>{result.hasRevealed ? result.revealedNumber : 'N/A'}</td>
-                <td>{result.hasRevealed ? result.difference : 'N/A'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    );
-};
-
 
 // --- Hauptkomponente: App ---
 
 function App() {
-  // --- State-Management mit React Hooks ---
+  // --- State-Management ---
   const [provider, setProvider] = useState<BrowserProvider | null>(null);
   const [gameContract, setGameContract] = useState<Contract | null>(null);
   const [account, setAccount] = useState<string | null>(null);
@@ -138,27 +131,30 @@ function App() {
   const [remainingTime, setRemainingTime] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [finalResults, setFinalResults] = useState<FinalResult[] | null>(null);
+  const [currentBlock, setCurrentBlock] = useState<number>(0);
 
-  // Eingabewerte aus den HTML-Formularen
   const [commitNumber, setCommitNumber] = useState<string>("");
   const [commitSalt, setCommitSalt] = useState<string>("");
   const [revealNumber, setRevealNumber] = useState<string>("");
   const [revealSalt, setRevealSalt] = useState<string>("");
 
-  // --- Initialisierung und Nebeneffekte mit useEffect ---
+  // --- Initialisierung und Nebeneffekte (useEffect) ---
 
   useEffect(() => {
-    const initProvider = () => {
+    const init = async () => {
       if (window.ethereum) {
         const newProvider = new ethers.BrowserProvider(window.ethereum);
         setProvider(newProvider);
         const readOnlyContract = new ethers.Contract(TWO_THIRDS_AVERAGE_GAME_ADDRESS, twoThirdsAverageGameABI, newProvider);
-        loadGameData(readOnlyContract);
+        await loadGameData(readOnlyContract);
+        
+        const blockNumber = await newProvider.getBlockNumber();
+        setCurrentBlock(blockNumber);
       } else {
         setStatus({ message: "MetaMask oder ein anderes Wallet ist nicht installiert.", type: 'error' });
       }
     };
-    initProvider();
+    init();
 
     if (window.ethereum) {
       window.ethereum.on('accountsChanged', () => window.location.reload());
@@ -167,67 +163,53 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!gameData || gameData.deadline === 0) {
+    if (!provider) return;
+    const onBlock = (blockNumber: number) => setCurrentBlock(blockNumber);
+    provider.on('block', onBlock);
+    return () => { provider.off('block', onBlock); };
+  }, [provider]);
+
+  useEffect(() => {
+    if (!gameData || gameData.deadlineBlock === 0 || currentBlock === 0) {
       setRemainingTime("Keine Deadline gesetzt");
       return;
     }
-    const interval = setInterval(() => {
-      const now = Math.floor(Date.now() / 1000);
-      const secondsLeft = gameData.deadline - now;
-      if (secondsLeft <= 0) {
-        setRemainingTime("Deadline abgelaufen");
-        clearInterval(interval);
-        return;
-      }
-      const minutes = Math.floor(secondsLeft / 60);
-      const seconds = secondsLeft % 60;
-      setRemainingTime(`Noch ${minutes}m ${seconds.toString().padStart(2, '0')}s`);
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [gameData]);
+    const blocksRemaining = gameData.deadlineBlock - currentBlock;
+    if (blocksRemaining <= 0) {
+      setRemainingTime("Deadline-Block erreicht");
+      return;
+    }
+    const AVERAGE_BLOCK_TIME_SECONDS = 12;
+    const estimatedSecondsLeft = blocksRemaining * AVERAGE_BLOCK_TIME_SECONDS;
+    const minutes = Math.floor(estimatedSecondsLeft / 60);
+    const seconds = estimatedSecondsLeft % 60;
+    setRemainingTime(`ca. ${minutes}m ${seconds.toString().padStart(2, '0')}s (${blocksRemaining} Blöcke)`);
+  }, [gameData, currentBlock]);
 
-  // Lädt die Endergebnisse, wenn das Spiel in Phase 4 oder 5 ist.
   useEffect(() => {
-    if (gameContract && gameData && (gameData.phase === 4 || gameData.phase === 5)) {
-        if (!finalResults) { // Nur laden, wenn wir es noch nicht haben
+    if (gameContract && gameData && (gameData.phase >= 4 && gameData.phase < 6)) {
+        if (!finalResults) {
             loadAndProcessResults(gameContract);
         }
     }
   }, [gameData, gameContract, finalResults]);
 
+  // --- Datenlade-Funktionen ---
 
-  // --- Funktionen zur Interaktion mit dem Smart Contract ---
-
-  const connectWallet = async () => {
-    if (!provider) return;
-    try {
-      setStatus({ message: "Verbinde mit Wallet...", type: 'loading' });
-      const signerInstance = await provider.getSigner();
-      const userAddress = await signerInstance.getAddress();
-      setAccount(userAddress);
-      const contractInstance = new ethers.Contract(TWO_THIRDS_AVERAGE_GAME_ADDRESS, twoThirdsAverageGameABI, signerInstance);
-      setGameContract(contractInstance);
-      await loadGameData(contractInstance, userAddress);
-      setStatus({ message: "Wallet erfolgreich verbunden.", type: 'success' });
-    } catch (error) {
-      console.error("Fehler beim Verbinden:", error);
-      setStatus({ message: "Verbindung fehlgeschlagen.", type: 'error' });
-    }
-  };
-  
   const loadGameData = async (contract: Contract, userAddress?: string) => {
     try {
       setStatus({ message: "Lade Spieldaten...", type: 'loading' });
       const [phase, wager, pot, playerCount, deadline, owner, winner, feeWithdrawn, targetVal] = await Promise.all([
         contract.aktuellePhase(), contract.WAGER_AMOUNT(), contract.pot(),
-        contract.getSpielerAnzahl(), contract.deadline(), contract.owner(),
+        contract.getSpielerAnzahl(), contract.deadlineBlock(), contract.owner(),
         contract.winner(), contract.serviceFeeWithdrawn(), contract.targetValue()
       ]);
-      setGameData({
+      const newGameData = {
         phase: Number(phase), wagerAmount: wager, pot: pot, playerCount: Number(playerCount), 
-        deadline: Number(deadline), owner: owner, winner: winner, serviceFeeWithdrawn: feeWithdrawn,
+        deadlineBlock: Number(deadline), owner: owner, winner: winner, serviceFeeWithdrawn: feeWithdrawn,
         targetValue: Number(targetVal)
-      });
+      };
+      setGameData(newGameData);
       if(userAddress) {
         setIsOwner(userAddress.toLowerCase() === owner.toLowerCase());
         const spieler = await contract.spielerDaten(userAddress);
@@ -247,13 +229,32 @@ function App() {
     const data = await fetchFinalResultsData(contract);
     if (data) {
         const processedResults = data.results
-            .filter(r => r.hasRevealed) // Nur Spieler anzeigen, die aufgedeckt haben
+            .filter(r => r.hasRevealed)
             .map(r => ({
                 ...r,
                 difference: Math.abs(r.revealedNumber - data.targetValue),
             }))
-            .sort((a, b) => a.difference - b.difference); // Nach Differenz aufsteigend sortieren
+            .sort((a, b) => a.difference - b.difference);
         setFinalResults(processedResults);
+    }
+  };
+
+  // --- Wallet & Transaktions-Handler ---
+
+  const connectWallet = async () => {
+    if (!provider) return;
+    try {
+      setStatus({ message: "Verbinde mit Wallet...", type: 'loading' });
+      const signerInstance = await provider.getSigner();
+      const userAddress = await signerInstance.getAddress();
+      setAccount(userAddress);
+      const contractInstance = new ethers.Contract(TWO_THIRDS_AVERAGE_GAME_ADDRESS, twoThirdsAverageGameABI, signerInstance);
+      setGameContract(contractInstance);
+      await loadGameData(contractInstance, userAddress);
+      setStatus({ message: "Wallet erfolgreich verbunden.", type: 'success' });
+    } catch (error) {
+      console.error("Fehler beim Verbinden:", error);
+      setStatus({ message: "Verbindung fehlgeschlagen.", type: 'error' });
     }
   };
 
@@ -269,37 +270,37 @@ function App() {
         await loadGameData(gameContract, account);
     } catch (error: any) {
         console.error(error);
-        const errorMessage = error.code === 'ACTION_REJECTED' 
+        const reason = error.reason || "Transaktion fehlgeschlagen.";
+        const finalMessage = error.code === 'ACTION_REJECTED' 
             ? "Transaktion in MetaMask abgelehnt."
-            : (error.reason || "Transaktion fehlgeschlagen.");
-        setStatus({ message: `Fehler: ${errorMessage}`, type: 'error' });
+            : reason;
+        setStatus({ message: `Fehler: ${finalMessage}`, type: 'error' });
     } finally {
         setIsSubmitting(false);
     }
   };
 
+  // --- Handler für alle Aktionen ---
   const handleJoinGame = () => handleTx(() => gameContract!.beitreten({ value: gameData!.wagerAmount }), "Erfolgreich beigetreten!");
-
   const handleCommit = () => {
     const saltAsBytes32 = encodeBytes32String(commitSalt);
     const commitment = solidityPackedKeccak256(["uint16", "bytes32", "address"], [commitNumber, saltAsBytes32, account!]);
     return handleTx(() => gameContract!.commit(commitment), "Commit erfolgreich gesendet!");
   };
-
   const handleReveal = () => {
     const saltAsBytes32 = encodeBytes32String(revealSalt);
     return handleTx(() => gameContract!.reveal(revealNumber, saltAsBytes32), "Zahl erfolgreich aufgedeckt!");
   };
-
-  const handleStateTransition = () => handleTx(() => gameContract!.forceStateTransition(), "Phase erfolgreich gewechselt!");
-  const handleCalculateWinner = () => handleTx(() => gameContract!.berechneErgebnisUndErmittleGewinner(), "Gewinner wurde ermittelt!");
   const handleWithdrawPrize = () => handleTx(() => gameContract!.withdrawPrize(), "Preisgeld erfolgreich abgehoben!");
+  const handleReclaimWager = () => handleTx(() => gameContract!.reclaimWager(), "Einsatz erfolgreich zurückgefordert!");
+  const handleAdvancePhase = () => handleTx(() => gameContract!.advancePhase(), "Phase erfolgreich vorangetrieben!");
+  const handleCalculateResult = () => handleTx(() => gameContract!.calculateResult(), "Ergebnisberechnung erfolgreich angestoßen!");
   const handleWithdrawServiceFee = () => handleTx(() => gameContract!.withdrawServiceFee(), "Servicegebühr erfolgreich abgehoben!");
 
   // --- JSX: Die Benutzeroberfläche ---
   return (
     <div className="App">
-      <header className="App-header">
+      <header>
         <h1>Errate 2/3 des Durchschnitts</h1>
         {!account ? (
           <button onClick={connectWallet} disabled={isSubmitting}>Wallet verbinden</button>
@@ -317,7 +318,7 @@ function App() {
             <p>Einsatz pro Spieler: <strong>{formatEther(gameData.wagerAmount)} ETH</strong></p>
             <p>Aktueller Pot: <strong>{formatEther(gameData.pot)} ETH</strong></p>
             <p>Anzahl Spieler: <strong>{gameData.playerCount}</strong></p>
-            <p>Deadline: <strong>{remainingTime}</strong></p>
+            <p>Phasenende: <strong>{remainingTime}</strong></p>
           </div>
 
           <div className="card game-actions">
@@ -354,32 +355,42 @@ function App() {
                 )}
               </div>
             )}
-            {gameData.phase === 3 && (<p>Das Spiel berechnet das Ergebnis. Der Admin muss den Prozess abschließen.</p>)}
+            {gameData.phase === 3 && (<p>Das Spiel ist bereit zur Berechnung. Jeder kann den Prozess nun anstoßen.</p>)}
             {gameData.phase === 4 && (
               <div>
                 <h4>Auszahlung</h4>
-                {account?.toLowerCase() === gameData.winner.toLowerCase() ? (
+                {account.toLowerCase() === gameData.winner.toLowerCase() ? (
                   !playerInfo?.hasWithdrawn ? ( <button onClick={handleWithdrawPrize} disabled={isSubmitting}>Preisgeld abheben</button> ) : 
                   ( <p><strong>Dein Preisgeld wurde bereits abgehoben.</strong></p> )
-                ) : ( <p>Nur der Gewinner kann das Preisgeld abheben.</p> )}
+                ) : ( <p>Nur der Gewinner ({`${gameData.winner.substring(0, 6)}...`}) kann das Preisgeld abheben.</p> )}
               </div>
             )}
-             {gameData.phase >= 4 && finalResults && gameData.winner && (
-                <ResultsTable results={finalResults} targetValue={gameData.targetValue} winnerAddress={gameData.winner} />
-             )}
             {gameData.phase === 5 && (<p>Das Spiel ist abgeschlossen.</p>)}
+            {gameData.phase === 6 && (
+              <div>
+                <h4>Spiel Abgebrochen</h4>
+                <p>Das Spiel wurde abgebrochen. Sie können Ihren Einsatz zurückfordern.</p>
+                {!playerInfo?.hasWithdrawn ? (
+                    <button onClick={handleReclaimWager} disabled={isSubmitting || !playerInfo?.hasJoined}>Einsatz zurückfordern</button>
+                ) : (
+                    <p><strong>Dein Einsatz wurde bereits zurückgefordert.</strong></p>
+                )}
+              </div>
+            )}
+            
+            {gameData.phase >= 4 && gameData.phase < 6 && finalResults && gameData.winner && (
+              <ResultsTable results={finalResults} targetValue={gameData.targetValue} winnerAddress={gameData.winner} />
+            )}
           </div>
           
-          {isOwner && (
-            <div className="card admin-actions">
-              <h2>Admin-Aktionen</h2>
-              {gameData.phase < 3 && (<button onClick={handleStateTransition} disabled={isSubmitting}>{isSubmitting ? 'Wird verarbeitet...' : 'Nächste Phase erzwingen'}</button>)}
-              {gameData.phase === 3 && (<button onClick={handleCalculateWinner} disabled={isSubmitting}>{isSubmitting ? 'Wird verarbeitet...' : 'Gewinner berechnen'}</button>)}
-              {gameData.phase === 4 && (!gameData.serviceFeeWithdrawn ? (
-                  <button onClick={handleWithdrawServiceFee} disabled={isSubmitting}>{isSubmitting ? 'Wird verarbeitet...' : 'Servicegebühr abheben'}</button>
-                ) : ( <p><strong>Servicegebühr wurde bereits abgehoben.</strong></p> ))}
-            </div>
-          )}
+          <div className="card public-actions">
+            <h2>Öffentliche Aktionen</h2>
+            {gameData.phase < 3 && (<button onClick={handleAdvancePhase} disabled={isSubmitting}>Phase vorantreiben</button>)}
+            {gameData.phase === 3 && (<button onClick={handleCalculateResult} disabled={isSubmitting}>Ergebnis berechnen</button>)}
+            {isOwner && gameData.phase === 4 && !gameData.serviceFeeWithdrawn && (
+                <button onClick={handleWithdrawServiceFee} disabled={isSubmitting}>Servicegebühr abheben (Admin)</button>
+            )}
+          </div>
         </main>
       )}
     </div>

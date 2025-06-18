@@ -5,14 +5,30 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 
 /**
  * @title TwoThirdsAverageGame
+ * @author Ihr Name / Ihre Gruppe
  * @notice Implementiert die Spiellogik für "Errate 2/3 des Durchschnitts".
- * @dev Alle Beträge sind in Wei (1 Ether = 10^18 Wei).
+ * @dev Dieser Vertrag verwaltet eine einzelne Spielrunde, von der Registrierung der Spieler
+ * bis zur Auszahlung des Gewinns. Der Spielablauf ist durch blockbasierte Fristen dezentralisiert
+ * und erfordert kein aktives Eingreifen des Spielleiters nach der Erstellung.
  */
 contract TwoThirdsAverageGame is Ownable {
-    // --- Typdefinitionen (Enums und Structs) ---
+    // --- Typdefinitionen ---
 
-    enum SpielPhase { Registrierung, Commit, Reveal, Berechnung, Auszahlung, Abgeschlossen }
+    /**
+     * @dev Definiert die verschiedenen Phasen, die das Spiel durchläuft.
+     * Registrierung: Spieler können beitreten.
+     * Commit: Spieler reichen einen Hash ihrer Zahl ein.
+     * Reveal: Spieler decken ihre Zahl und ihr Salt auf.
+     * Berechnung: Das Ergebnis wird ermittelt.
+     * Auszahlung: Der Gewinner und der Admin können ihre Anteile abheben.
+     * Abgeschlossen: Das Spiel ist regulär beendet.
+     * Abgebrochen: Das Spiel wurde aufgrund von Inaktivität oder zu weniger Spieler beendet; Einsätze können zurückgefordert werden.
+     */
+    enum SpielPhase { Registrierung, Commit, Reveal, Berechnung, Auszahlung, Abgeschlossen, Abgebrochen }
 
+    /**
+     * @dev Speichert alle relevanten Informationen zu einem einzelnen Spieler.
+     */
     struct SpielerInfo {
         uint256 wagerAmount;
         bytes32 commitment;
@@ -27,30 +43,39 @@ contract TwoThirdsAverageGame is Ownable {
     SpielPhase public aktuellePhase;
     mapping(address => SpielerInfo) public spielerDaten;
     address[] public spielerListe;
+
     uint256 public immutable WAGER_AMOUNT;
     uint8 public immutable SERVICE_FEE_PERCENTAGE;
-    uint256 public deadline;
+    
+    uint256 public deadlineBlock;
     uint256 public pot;
-    bool public serviceFeeWithdrawn;
     address public winner;
+    
+    bool public serviceFeeWithdrawn;
     address[] public potentialWinners;
+    
     uint256 public averageValue;
     uint256 public targetValue;
     uint256 public winningDistance;
 
+    // --- Konstanten ---
+
     uint8 public constant MIN_PLAYERS = 3;
-    uint256 public constant REGISTRATION_DURATION = 600; // 10 Minuten
-    uint256 public constant COMMIT_DURATION = 300;
-    uint256 public constant REVEAL_DURATION = 300;
+    // Fristen sind in Blöcken definiert, um eine deterministische und manipulationssichere Zeitmessung zu gewährleisten.
+    // Annahme: ca. 5 Blöcke pro Minute auf Ethereum Mainnet.
+    uint256 public constant REGISTRATION_BLOCKS = 50; // ca. 10 Minuten
+    uint256 public constant COMMIT_BLOCKS = 25;       // ca. 5 Minuten
+    uint256 public constant REVEAL_BLOCKS = 25;       // ca. 5 Minuten
 
     // --- Events ---
 
-    event PhaseGeaendert(SpielPhase neuePhase, uint256 neueDeadline);
+    event PhaseGeaendert(SpielPhase neuePhase, uint256 neueDeadlineBlock);
     event SpielerBeigetreten(address indexed spieler, uint256 einsatz);
     event SpielerHatCommittet(address indexed spieler, bytes32 commitment);
     event SpielerHatAufgedeckt(address indexed spieler, uint16 zahl);
     event SpielBerechnet(uint256 durchschnitt, uint256 zielwert, address gewinner, uint16 gewinnerZahl);
     event AuszahlungErfolgt(address indexed empfaenger, uint256 betrag);
+    event SpielAbgebrochen(string grund);
 
     // --- Modifiers ---
 
@@ -60,7 +85,7 @@ contract TwoThirdsAverageGame is Ownable {
     }
 
     modifier nurVorDeadline() {
-        require(block.timestamp < deadline, "Deadline fuer diese Aktion ist abgelaufen.");
+        require(block.number < deadlineBlock, "Deadline-Block fuer diese Aktion ist erreicht.");
         _;
     }
 
@@ -77,30 +102,32 @@ contract TwoThirdsAverageGame is Ownable {
         WAGER_AMOUNT = _wagerAmount;
         SERVICE_FEE_PERCENTAGE = _serviceFeePercentage;
         aktuellePhase = SpielPhase.Registrierung;
-        deadline = block.timestamp + REGISTRATION_DURATION;
+        deadlineBlock = block.number + REGISTRATION_BLOCKS;
 
-        emit PhaseGeaendert(SpielPhase.Registrierung, deadline);
+        emit PhaseGeaendert(SpielPhase.Registrierung, deadlineBlock);
     }
 
-    // --- Spiel Logik Funktionen ---
+    // --- Spieler-Funktionen ---
 
+    /**
+     * @notice Ermöglicht einem Spieler, dem Spiel beizutreten.
+     * @dev Muss in der Registrierungsphase vor Ablauf der Deadline aufgerufen werden.
+     * Der gesendete Ether-Betrag muss exakt dem Wetteinsatz entsprechen.
+     */
     function beitreten() public payable nurInPhase(SpielPhase.Registrierung) nurVorDeadline() {
         require(msg.value == WAGER_AMOUNT, "Falscher Wetteinsatz gesendet.");
         require(spielerDaten[msg.sender].wagerAmount == 0, "Spieler hat bereits teilgenommen.");
         
         spielerListe.push(msg.sender);
-        spielerDaten[msg.sender] = SpielerInfo({
-            wagerAmount: msg.value,
-            commitment: 0,
-            revealedNumber: 0,
-            hasCommitted: false,
-            hasRevealed: false,
-            hasWithdrawn: false
-        });
+        spielerDaten[msg.sender] = SpielerInfo(msg.value, 0, 0, false, false, false);
         pot += msg.value;
         emit SpielerBeigetreten(msg.sender, msg.value);
     }
 
+    /**
+     * @notice Nimmt den kryptographischen Hash (Commitment) eines Spielers entgegen.
+     * @param _commitment Der `keccak256` Hash aus Zahl, Salt und Spieleradresse.
+     */
     function commit(bytes32 _commitment) public nurInPhase(SpielPhase.Commit) nurVorDeadline() {
         require(spielerDaten[msg.sender].wagerAmount > 0, "Nur registrierte Spieler duerfen committen.");
         require(!spielerDaten[msg.sender].hasCommitted, "Spieler hat bereits einen Commit eingereicht.");
@@ -111,6 +138,11 @@ contract TwoThirdsAverageGame is Ownable {
         emit SpielerHatCommittet(msg.sender, _commitment);
     }
 
+    /**
+     * @notice Dient zum Aufdecken der zuvor committeten Zahl.
+     * @param _number Die gewählte Zahl (0-1000).
+     * @param _salt Das geheime Salt, das für den Commit verwendet wurde.
+     */
     function reveal(uint16 _number, bytes32 _salt) public nurInPhase(SpielPhase.Reveal) nurVorDeadline() {
         require(spielerDaten[msg.sender].wagerAmount > 0, "Nur registrierte Spieler duerfen aufdecken.");
         require(spielerDaten[msg.sender].hasCommitted, "Spieler muss zuerst einen Commit einreichen.");
@@ -118,72 +150,77 @@ contract TwoThirdsAverageGame is Ownable {
         require(_number <= 1000, "Zahl muss zwischen 0 und 1000 liegen.");
 
         bytes32 recomputedCommitment = keccak256(abi.encodePacked(_number, _salt, msg.sender));
-        require(recomputedCommitment == spielerDaten[msg.sender].commitment, "Ungueltiger Reveal. Zahl oder Salt sind falsch.");
+        require(recomputedCommitment == spielerDaten[msg.sender].commitment, "Ungueltiger Reveal: Zahl oder Salt sind falsch.");
 
         spielerDaten[msg.sender].revealedNumber = _number;
         spielerDaten[msg.sender].hasRevealed = true;
         emit SpielerHatAufgedeckt(msg.sender, _number);
     }
 
-    // --- View Funktionen ---
+    // --- Spielablauf- und Berechnungsfunktionen ---
 
-    function getSpielerAnzahl() public view returns (uint256) {
-        return spielerListe.length;
-    }
-    
-    // --- Administrative und Auszahlungs-Funktionen ---
+    /**
+     * @notice Stößt den Übergang in die nächste Spielphase an, sobald die Frist abgelaufen ist.
+     * @dev Kann von JEDEM aufgerufen werden, um den Spielfortschritt zu gewährleisten.
+     */
+    function advancePhase() public {
+        require(block.number >= deadlineBlock, "Deadline-Block fuer diese Aktion ist noch nicht erreicht.");
 
-    function forceStateTransition() public {
         if (aktuellePhase == SpielPhase.Registrierung) {
-            require(block.timestamp >= deadline || msg.sender == owner(), "Uebergang noch nicht erlaubt.");
-            require(spielerListe.length >= MIN_PLAYERS, "Nicht genuegend Spieler beigetreten.");
-            aktuellePhase = SpielPhase.Commit;
-            deadline = block.timestamp + COMMIT_DURATION;
-            emit PhaseGeaendert(aktuellePhase, deadline);
-            return;
-        }
-        if (aktuellePhase == SpielPhase.Commit) {
-            require(block.timestamp >= deadline || msg.sender == owner(), "Uebergang noch nicht erlaubt.");
+            if (spielerListe.length < MIN_PLAYERS) {
+                aktuellePhase = SpielPhase.Abgebrochen;
+                emit SpielAbgebrochen("Nicht genuegend Spieler beigetreten.");
+                emit PhaseGeaendert(aktuellePhase, 0);
+            } else {
+                aktuellePhase = SpielPhase.Commit;
+                deadlineBlock = block.number + COMMIT_BLOCKS;
+                emit PhaseGeaendert(aktuellePhase, deadlineBlock);
+            }
+        } else if (aktuellePhase == SpielPhase.Commit) {
             aktuellePhase = SpielPhase.Reveal;
-            deadline = block.timestamp + REVEAL_DURATION;
-            emit PhaseGeaendert(aktuellePhase, deadline);
-            return;
-        }
-        if (aktuellePhase == SpielPhase.Reveal) {
-            require(block.timestamp >= deadline || msg.sender == owner(), "Uebergang noch nicht erlaubt.");
+            deadlineBlock = block.number + REVEAL_BLOCKS;
+            emit PhaseGeaendert(aktuellePhase, deadlineBlock);
+        } else if (aktuellePhase == SpielPhase.Reveal) {
             aktuellePhase = SpielPhase.Berechnung;
-            deadline = 0;
-            emit PhaseGeaendert(aktuellePhase, deadline);
-            return;
-        }
-        if (aktuellePhase == SpielPhase.Auszahlung) {
-            require(msg.sender == owner(), "Nur Spielleiter kann Spiel beenden.");
-            require(serviceFeeWithdrawn && spielerDaten[winner].hasWithdrawn, "Auszahlungen noch nicht abgeschlossen.");
-            aktuellePhase = SpielPhase.Abgeschlossen;
-            emit PhaseGeaendert(aktuellePhase, 0);
-            return;
+            deadlineBlock = 0;
+            emit PhaseGeaendert(aktuellePhase, deadlineBlock);
         }
     }
 
-    function berechneErgebnisUndErmittleGewinner() public onlyOwner nurInPhase(SpielPhase.Berechnung) {
+    /**
+     * @notice Berechnet das Spielergebnis und ermittelt den Gewinner.
+     * @dev Kann von JEDEM aufgerufen werden, sobald die Berechnungsphase erreicht ist.
+     */
+    function calculateResult() public nurInPhase(SpielPhase.Berechnung) {
         uint256 summe = 0;
         uint256 anzahlAufgedeckterSpieler = 0;
         for (uint i = 0; i < spielerListe.length; i++) {
-            if (spielerDaten[spielerListe[i]].hasRevealed) {
-                summe += spielerDaten[spielerListe[i]].revealedNumber;
+            SpielerInfo storage spieler = spielerDaten[spielerListe[i]];
+            if (spieler.hasRevealed) {
+                summe += spieler.revealedNumber;
                 anzahlAufgedeckterSpieler++;
             }
         }
-        require(anzahlAufgedeckterSpieler > 0, "Niemand hat aufgedeckt, Spiel kann nicht ausgewertet werden.");
+        
+        if (anzahlAufgedeckterSpieler == 0) {
+            aktuellePhase = SpielPhase.Abgebrochen;
+            emit SpielAbgebrochen("Niemand hat eine Zahl aufgedeckt.");
+            emit PhaseGeaendert(aktuellePhase, 0);
+            return;
+        }
+
         averageValue = summe / anzahlAufgedeckterSpieler;
         targetValue = (averageValue * 2) / 3;
         winningDistance = type(uint256).max;
+
         for (uint i = 0; i < spielerListe.length; i++) {
             address spielerAdresse = spielerListe[i];
-            if (spielerDaten[spielerAdresse].hasRevealed) {
-                uint256 differenz = spielerDaten[spielerAdresse].revealedNumber > targetValue
-                    ? spielerDaten[spielerAdresse].revealedNumber - targetValue
-                    : targetValue - spielerDaten[spielerAdresse].revealedNumber;
+            SpielerInfo storage spieler = spielerDaten[spielerAdresse];
+            if (spieler.hasRevealed) {
+                uint256 differenz = spieler.revealedNumber > targetValue
+                    ? spieler.revealedNumber - targetValue
+                    : targetValue - spieler.revealedNumber;
+                
                 if (differenz < winningDistance) {
                     winningDistance = differenz;
                     delete potentialWinners;
@@ -193,20 +230,24 @@ contract TwoThirdsAverageGame is Ownable {
                 }
             }
         }
-        require(potentialWinners.length > 0, "Interner Fehler: Kein potenzieller Gewinner gefunden.");
+
         if (potentialWinners.length == 1) {
             winner = potentialWinners[0];
         } else {
-            // Vereinfachte Zufallsauswahl für den Fall eines Unentschiedens
-            uint256 randomIndex = uint256(keccak256(abi.encodePacked(block.timestamp, block.prevrandao))) % potentialWinners.length;
+            // @dev Unsichere Zufallsauswahl. Für Produktionssysteme sollte Chainlink VRF genutzt werden.
+            uint256 randomIndex = uint256(keccak256(abi.encodePacked(block.timestamp, block.prevrandao, pot))) % potentialWinners.length;
             winner = potentialWinners[randomIndex];
         }
+        
         aktuellePhase = SpielPhase.Auszahlung;
         emit SpielBerechnet(averageValue, targetValue, winner, spielerDaten[winner].revealedNumber);
+        emit PhaseGeaendert(aktuellePhase, 0);
     }
     
+    // --- Auszahlungs- und Rückforderungs-Funktionen ---
+
     /**
-     * @notice Ermöglicht dem Gewinner, seinen Preis abzuholen.
+     * @notice Ermöglicht dem Gewinner, sein Preisgeld abzuheben (Pull-Pattern).
      */
     function withdrawPrize() public nurInPhase(SpielPhase.Auszahlung) {
         require(msg.sender == winner, "Nur der Gewinner kann das Preisgeld abheben.");
@@ -222,7 +263,7 @@ contract TwoThirdsAverageGame is Ownable {
     }
 
     /**
-     * @notice Ermöglicht dem Besitzer, die Servicegebühr abzuholen.
+     * @notice Ermöglicht dem Spielleiter (Owner), die Servicegebühr abzuheben (Pull-Pattern).
      */
     function withdrawServiceFee() public onlyOwner nurInPhase(SpielPhase.Auszahlung) {
         require(!serviceFeeWithdrawn, "Servicegebuehr wurde bereits abgehoben.");
@@ -235,5 +276,31 @@ contract TwoThirdsAverageGame is Ownable {
             require(sent, "Ether-Transfer an Spielleiter fehlgeschlagen.");
             emit AuszahlungErfolgt(owner(), serviceFee);
         }
+    }
+
+    /**
+     * @notice Ermöglicht Spielern, ihren ursprünglichen Einsatz zurückzufordern,
+     * falls das Spiel in die `Abgebrochen`-Phase übergegangen ist.
+     */
+    function reclaimWager() public nurInPhase(SpielPhase.Abgebrochen) {
+        SpielerInfo storage spieler = spielerDaten[msg.sender];
+        require(spieler.wagerAmount > 0, "Nur Spieler koennen Einsatz zurueckfordern.");
+        require(!spieler.hasWithdrawn, "Einsatz bereits zurueckgefordert.");
+
+        spieler.hasWithdrawn = true;
+        uint256 wager = spieler.wagerAmount;
+
+        (bool sent, ) = msg.sender.call{value: wager}("");
+        require(sent, "Rueckzahlung fehlgeschlagen.");
+        emit AuszahlungErfolgt(msg.sender, wager);
+    }
+
+    // --- View Funktionen ---
+
+    /**
+     * @notice Gibt die Anzahl der Spieler zurück, die dem Spiel beigetreten sind.
+     */
+    function getSpielerAnzahl() public view returns (uint256) {
+        return spielerListe.length;
     }
 }
