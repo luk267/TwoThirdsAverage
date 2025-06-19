@@ -5,57 +5,75 @@
   text-align: center;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+/* --- Grundlegende Stile & Layout --- */
+
+.game-container {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+  margin-top: 2rem;
 }
 
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
+/* Auf größeren Bildschirmen zweispaltiges Layout */
+@media (min-width: 900px) {
+  .game-container {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 
 .card {
-  padding: 2em;
+  background-color: #2f2f2f;
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 1.5em 2em;
+  text-align: left;
 }
 
-.read-the-docs {
-  color: #888;
+.card h2 {
+  margin-top: 0;
+  border-bottom: 2px solid #646cff;
+  padding-bottom: 0.5rem;
+  margin-bottom: 1.5rem;
 }
 
-/* Verbesserte Statusanzeige */
-.status {
+/* --- Header & Account-Informationen --- */
+
+header {
+  margin-bottom: 2rem;
+}
+
+.accountInfo {
   margin-top: 1rem;
-  padding: 0.5rem 1rem;
+  color: #aaa;
+}
+
+.accountInfo span {
+  font-weight: bold;
+  color: #eee;
+  background-color: #333;
+  padding: 0.2em 0.5em;
+  border-radius: 4px;
+}
+
+
+/* --- Statusanzeige --- */
+
+.status {
+  margin-top: 1.5rem;
+  padding: 0.75rem 1rem;
   border-radius: 8px;
   font-weight: 500;
-  min-width: 300px;
   transition: background-color 0.3s, color 0.3s;
+  border: 1px solid transparent;
 }
-.status.info { background-color: #2a2a6e; color: #d8d8ff; }
-.status.success { background-color: #2a6e2a; color: #d8ffd8; }
-.status.error { background-color: #6e2a2a; color: #ffd8d8; }
-.status.loading { background-color: #4a4a4a; color: #f0f0f0; }
+.status-info { background-color: #2a2a6e; color: #d8d8ff; border-color: #535bf2; }
+.status-success { background-color: #2a6e2a; color: #d8ffd8; border-color: #3a9a3a; }
+.status-error { background-color: #6e2a2a; color: #ffd8d8; border-color: #c53939; }
+.status-loading { background-color: #4a4a4a; color: #f0f0f0; border-color: #666; }
 
-/* Layout für Formulargruppen */
+
+/* --- Formularelemente & Aktionen --- */
+
 .form-group {
   display: flex;
   flex-direction: column;
@@ -69,60 +87,29 @@
   border-radius: 8px;
   border: 1px solid #555;
   background-color: #2a2a2a;
-  width: 80%;
+  width: 90%;
   max-width: 400px;
 }
 
-/* Spezifische Gruppe für das Salt-Eingabefeld */
-.salt-input-group {
-  display: flex;
-  gap: 0.5rem;
-  width: 85%;
-  max-width: 550px;
-  align-items: center;
-  justify-content: center;
-}
-.salt-input-group input {
-  flex-grow: 1;
-}
-
-/* Visuelle Hervorhebung der Salt-Warnung */
-.card-warning {
-  background-color: rgba(255, 224, 130, 0.1);
-  border: 1px solid #ffe082;
-  border-radius: 8px;
-  padding: 1.5em;
-  margin-top: 1em;
-}
-
-.salt-display {
-  background-color: #1a1a1a;
-  padding: 0.5em;
-  border-radius: 4px;
-  margin: 1em 0;
-  word-break: break-all; /* Damit lange Salts umbrechen */
-}
-
-/* Animation für den Spinner */
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-.spinner {
-  display: inline-block;
-  animation: spin 1s linear infinite;
-  margin-right: 0.5em;
+.explanation-text {
+  max-width: 450px;
+  width: 90%;
+  margin: 0 auto 1rem auto;
+  font-size: 0.9em;
+  color: #bbb;
+  border-left: 3px solid #646cff;
+  padding-left: 1rem;
+  text-align: left;
+  line-height: 1.6;
 }
 
 
-
-.status-info { color: #888; }
-.status-success { color: #4caf50; font-weight: bold; }
-.status-error { color: #f44336; font-weight: bold; }
-.status-loading { color: #2196f3; }
+/* --- Ergebnistabelle --- */
 
 .results-table {
-  margin-top: 2rem;
+  /* Nimmt die volle Breite im Grid ein */
+  grid-column: 1 / -1; 
+  margin-top: 1rem;
 }
 
 .results-table table {
@@ -133,15 +120,20 @@
 
 .results-table th, .results-table td {
   border: 1px solid #444;
-  padding: 8px;
+  padding: 10px 12px;
   text-align: left;
 }
 
 .results-table th {
-  background-color: #333;
+  background-color: #3c3c3c;
 }
 
 .winner-row {
-  background-color: #2a3a2a;
+  /* Grüner Hintergrund für den Gewinner */
+  background-color: #2a4a2a; 
   font-weight: bold;
+}
+
+.winner-row td {
+    border-color: #3a9a3a;
 }
