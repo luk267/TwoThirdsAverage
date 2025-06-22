@@ -400,7 +400,7 @@ function App() {
                   <div className="form-group">
                     <p className="explanation-text">
                         <strong>Phase 1: Commit</strong><br/>
-                        Senden Sie einen "digitalen Fingerabdruck" (Hash) Ihrer Zahl. Ihre Zahl bleibt geheim, aber Ihre Wahl ist auf der Blockchain festgelegt. Das "Salt" ist ein geheimes Wort, das Ihren Hash einzigartig macht.
+                        Geben Sie nun Ihre Zahl zwischen 0 und 1000 ein. Zusätzlich wird ein Salt benötigt damit Ihre Wette sicher verarbeitet werden kann. Wählen Sie dazu eine Zeichenkette, die von keinem Mitspieler erraten werden kann.
                     </p>
                     <input type="number" placeholder="Ihre Zahl (0-1000)" value={commitNumber} onChange={(e) => setCommitNumber(e.target.value)} disabled={isSubmitting} />
                     <input type="text" placeholder="Ihr geheimes Salt (gut merken!)" value={commitSalt} onChange={(e) => setCommitSalt(e.target.value)} disabled={isSubmitting} />

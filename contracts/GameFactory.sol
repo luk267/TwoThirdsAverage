@@ -7,7 +7,6 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "./TwoThirdsAverageGame.sol";
 
 /**
- * @title GameFactory
  * @notice Erstellt und verwaltet Instanzen des "Errate 2/3 des Durchschnitts"-Spiels.
  * @dev Dies ist der Einstiegspunkt für die Erstellung neuer Spiele, gemäß dem Factory-Pattern.
  */

@@ -3,32 +3,12 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-/**
- * @title TwoThirdsAverageGame
- * @author Ihr Name / Ihre Gruppe
- * @notice Implementiert die Spiellogik für "Errate 2/3 des Durchschnitts".
- * @dev Dieser Vertrag verwaltet eine einzelne Spielrunde, von der Registrierung der Spieler
- * bis zur Auszahlung des Gewinns. Der Spielablauf ist durch blockbasierte Fristen dezentralisiert
- * und erfordert kein aktives Eingreifen des Spielleiters nach der Erstellung.
- */
 contract TwoThirdsAverageGame is Ownable {
-    // --- Typdefinitionen ---
 
-    /**
-     * @dev Definiert die verschiedenen Phasen, die das Spiel durchläuft.
-     * Registrierung: Spieler können beitreten.
-     * Commit: Spieler reichen einen Hash ihrer Zahl ein.
-     * Reveal: Spieler decken ihre Zahl und ihr Salt auf.
-     * Berechnung: Das Ergebnis wird ermittelt.
-     * Auszahlung: Der Gewinner und der Admin können ihre Anteile abheben.
-     * Abgeschlossen: Das Spiel ist regulär beendet.
-     * Abgebrochen: Das Spiel wurde aufgrund von Inaktivität oder zu weniger Spieler beendet; Einsätze können zurückgefordert werden.
-     */
+    //Definiert die verschiedenen Phasen, die das Spiel durchläuft.
     enum SpielPhase { Registrierung, Commit, Reveal, Berechnung, Auszahlung, Abgeschlossen, Abgebrochen }
 
-    /**
-     * @dev Speichert alle relevanten Informationen zu einem einzelnen Spieler.
-     */
+    //Speichert alle relevanten Informationen zu einem einzelnen Spieler.
     struct SpielerInfo {
         uint256 wagerAmount;
         bytes32 commitment;
