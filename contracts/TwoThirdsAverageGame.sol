@@ -43,9 +43,9 @@ contract TwoThirdsAverageGame is Ownable {
     uint8 public constant MIN_PLAYERS = 3;
     // Fristen sind in Blöcken definiert, um eine deterministische und manipulationssichere Zeitmessung zu gewährleisten.
     // Annahme: ca. 5 Blöcke pro Minute auf Ethereum Mainnet.
-    uint256 public constant REGISTRATION_BLOCKS = 50; // ca. 10 Minuten
-    uint256 public constant COMMIT_BLOCKS = 25;       // ca. 5 Minuten
-    uint256 public constant REVEAL_BLOCKS = 25;       // ca. 5 Minuten
+    uint256 public constant REGISTRATION_BLOCKS = 10; // ca. 10 Minuten
+    uint256 public constant COMMIT_BLOCKS = 10;       // ca. 5 Minuten
+    uint256 public constant REVEAL_BLOCKS = 10;       // ca. 5 Minuten
 
     // --- Events ---
 
@@ -240,6 +240,11 @@ contract TwoThirdsAverageGame is Ownable {
         (bool sent, ) = msg.sender.call{value: winnerPayout}("");
         require(sent, "Ether-Transfer an Gewinner fehlgeschlagen.");
         emit AuszahlungErfolgt(msg.sender, winnerPayout);
+
+        if (serviceFeeWithdrawn) {
+            aktuellePhase = SpielPhase.Abgeschlossen;
+            emit PhaseGeaendert(SpielPhase.Abgeschlossen, 0);
+        }
     }
 
     /**
@@ -255,6 +260,11 @@ contract TwoThirdsAverageGame is Ownable {
             (bool sent, ) = owner().call{value: serviceFee}("");
             require(sent, "Ether-Transfer an Spielleiter fehlgeschlagen.");
             emit AuszahlungErfolgt(owner(), serviceFee);
+        }
+
+        if (winner != address(0) && spielerDaten[winner].hasWithdrawn) {
+            aktuellePhase = SpielPhase.Abgeschlossen;
+            emit PhaseGeaendert(SpielPhase.Abgeschlossen, 0);
         }
     }
 
